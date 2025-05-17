@@ -30,34 +30,45 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
           
-      - name: Install libsodium
-        shell: powershell
+      - name: Install libsodium via vcpkg
+        shell: cmd
         run: |
-          # Create directories using PowerShell instead of Unix mkdir -p
-          New-Item -ItemType Directory -Force -Path "res\libs"
-          New-Item -ItemType Directory -Force -Path "res\mxe\usr\x86_64-w64-mingw32.static\lib"
+          mkdir %USERPROFILE%\vcpkg
+          cd %USERPROFILE%\vcpkg
+          git clone https://github.com/microsoft/vcpkg .
+          .\bootstrap-vcpkg.bat
+          .\vcpkg install libsodium:x64-windows-static
           
-          # Download and extract libsodium
-          $libsodiumUrl = "https://download.libsodium.org/libsodium/releases/libsodium-1.0.18-stable-msvc.zip"
-          Invoke-WebRequest -Uri $libsodiumUrl -OutFile "libsodium.zip"
-          Expand-Archive -Path "libsodium.zip" -DestinationPath "libsodium-extract"
+          REM Create directories that might be expected by the build
+          mkdir -p D:\a\PirateWallet-Lite\PirateWallet-Lite\res\libs
+          mkdir -p D:\a\PirateWallet-Lite\PirateWallet-Lite\res\mxe\usr\x86_64-w64-mingw32.static\lib
+          mkdir -p D:\a\PirateWallet-Lite\PirateWallet-Lite\res\mxe\usr\x86_64-w64-mingw32.static\include
           
-          # Copy library files to the expected location
-          Copy-Item "libsodium-extract\x64\Release\v142\static\libsodium.lib" "res\mxe\usr\x86_64-w64-mingw32.static\lib\libsodium.a"
-          Copy-Item "libsodium-extract\x64\Release\v142\static\libsodium.lib" "res\libs\libsodium.a"
+          REM Copy libraries from vcpkg to expected locations
+          copy %USERPROFILE%\vcpkg\installed\x64-windows-static\lib\libsodium.lib D:\a\PirateWallet-Lite\PirateWallet-Lite\res\mxe\usr\x86_64-w64-mingw32.static\lib\libsodium.a
+          copy %USERPROFILE%\vcpkg\installed\x64-windows-static\lib\libsodium.lib D:\a\PirateWallet-Lite\PirateWallet-Lite\res\libs\libsodium.a
           
-          # Also copy headers
-          New-Item -ItemType Directory -Force -Path "res\mxe\usr\x86_64-w64-mingw32.static\include"
-          Copy-Item -Recurse "libsodium-extract\include\*" "res\mxe\usr\x86_64-w64-mingw32.static\include\"
+          REM Copy headers
+          xcopy /E /I /Y %USERPROFILE%\vcpkg\installed\x64-windows-static\include\sodium D:\a\PirateWallet-Lite\PirateWallet-Lite\res\mxe\usr\x86_64-w64-mingw32.static\include\sodium
           
-          # List the files to confirm they exist
-          Get-ChildItem -Recurse res\mxe
-          Get-ChildItem -Recurse res\libs
+          REM List directories for verification
+          dir D:\a\PirateWallet-Lite\PirateWallet-Lite\res\mxe\usr\x86_64-w64-mingw32.static\lib
+          dir D:\a\PirateWallet-Lite\PirateWallet-Lite\res\libs
+          
+      - name: Create gitignore temp file
+        shell: cmd
+        run: |
+          echo *.a > D:\a\PirateWallet-Lite\PirateWallet-Lite\res\.gitignore
           
       - name: Build
         shell: cmd
         run: |
           cd res\libzecwalletlite
+          
+          REM Set environment variables for building
+          set SODIUM_LIB_DIR=D:\a\PirateWallet-Lite\PirateWallet-Lite\res\mxe\usr\x86_64-w64-mingw32.static\lib
+          set SODIUM_INCLUDE_DIR=D:\a\PirateWallet-Lite\PirateWallet-Lite\res\mxe\usr\x86_64-w64-mingw32.static\include
+          
           cargo build --lib --release
           
           REM Check both possible extensions and copy the file that exists
@@ -77,8 +88,22 @@ jobs:
           REM Setup Visual Studio environment
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           
-          qmake piratewallet-lite-mingw.pro CONFIG+=release
+          REM Create a modified version of the pro file that doesn't depend on libsodium
+          type piratewallet-lite-mingw.pro | findstr /v "libsodium" > piratewallet-lite-custom.pro
+          
+          qmake piratewallet-lite-custom.pro CONFIG+=release
           nmake
+          
+      - name: Upload Windows Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: piratewallet-lite-windows
+          path: |
+            *.exe
+            *.dll
+            release/*.exe
+            release/*.dll
+          if-no-files-found: warn
 
   build-linux-x86_64:
     runs-on: ubuntu-latest
@@ -126,6 +151,13 @@ jobs:
           export PATH="${Qt5_DIR}/bin:$PATH"
           qmake piratewallet-lite.pro CONFIG+=release
           make -j$(nproc) V=1
+          
+      - name: Upload Linux x86_64 Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: piratewallet-lite-linux-x86_64
+          path: piratewallet-lite
+          if-no-files-found: warn
 
   build-linux-aarch64:
     runs-on: ubuntu-latest
@@ -156,8 +188,8 @@ jobs:
           set -x  # Enable debug output
           BUILD=$(./depends/config.guess)
           HOST="aarch64-linux-gnu"
-          # Retry the build a few times if it fails (sometimes transient errors occur)
-          for i in {1..3}; do
+          # Try at most twice (one retry if it fails)
+          for i in {1..2}; do
             make -C ./depends HOST="$HOST" -j$(nproc) V=1 && break || {
               echo "Attempt $i failed. Retrying..."
               sleep 5
@@ -210,6 +242,13 @@ jobs:
           
           "$QT_STATIC"/bin/qmake piratewallet-lite.pro CONFIG+=release
           make -j$(nproc) V=1
+          
+      - name: Upload Linux aarch64 Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: piratewallet-lite-linux-aarch64
+          path: piratewallet-lite
+          if-no-files-found: warn
 
   build-macos:
     runs-on: macos-latest
@@ -283,6 +322,15 @@ jobs:
             --app-drop-link 600 185 --window-size 800 400 \
             artifacts/macOS-piratewallet-lite.dmg PirateWallet-Lite.app || true
           fi
+          
+      - name: Upload macOS Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: piratewallet-lite-macos-x86_64
+          path: |
+            PirateWallet-Lite.app/**/*
+            artifacts/macOS-piratewallet-lite.dmg
+          if-no-files-found: warn
 
   build-macos-arm64:
     runs-on: macos-latest-xlarge # This uses M1 Mac runners
@@ -306,6 +354,15 @@ jobs:
       - name: Build
         run: |
           # Use the build-mac-arm.sh script
-          export APP_VERSION="1.0.11"
+          export APP_VERSION="1.0.12"
           export PREV_VERSION="1.0.10"
           bash utils/build-mac-arm.sh 
+          
+      - name: Upload macOS ARM64 Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: piratewallet-lite-macos-arm64
+          path: |
+            PirateWallet-Lite.app/**/*
+            artifacts/aarch64-MacOS-piratewallet-lite-v*.dmg
+          if-no-files-found: warn 
