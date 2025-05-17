@@ -107,8 +107,15 @@ jobs:
           echo TARGET = piratewallet-lite >> piratewallet-lite-simple.pro
           echo CONFIG += c++1z >> piratewallet-lite-simple.pro
           echo QT += core gui network widgets websockets >> piratewallet-lite-simple.pro
-          echo HEADERS += $(cat piratewallet-lite-mingw.pro | findstr /i "HEADERS" | findstr /v "libsodium") >> piratewallet-lite-simple.pro
-          echo SOURCES += $(cat piratewallet-lite-mingw.pro | findstr /i "SOURCES") >> piratewallet-lite-simple.pro
+          
+          REM Extract headers and sources from the original .pro file using Windows commands
+          findstr /i "HEADERS" piratewallet-lite-mingw.pro | findstr /v "libsodium" > headers_temp.txt
+          set /p HEADERS_LINE=<headers_temp.txt
+          echo %HEADERS_LINE% >> piratewallet-lite-simple.pro
+          
+          findstr /i "SOURCES" piratewallet-lite-mingw.pro > sources_temp.txt
+          set /p SOURCES_LINE=<sources_temp.txt
+          echo %SOURCES_LINE% >> piratewallet-lite-simple.pro
           
           REM Just attempt to compile something - anything - for demonstration
           %Qt5_DIR%\bin\qmake piratewallet-lite-simple.pro
