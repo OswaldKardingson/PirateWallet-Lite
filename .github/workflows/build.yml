@@ -130,14 +130,26 @@ jobs:
           REM Setup Visual Studio environment
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           
-          REM Use the actual project file for building
-          %Qt5_DIR%\bin\qmake piratewallet-lite-mingw.pro CONFIG+=release -spec win32-msvc
+          REM Set environment variables for building
+          set SODIUM_LIB_DIR=D:\a\PirateWallet-Lite\PirateWallet-Lite\res\mxe\usr\x86_64-w64-mingw32.static\lib
+          set SODIUM_INCLUDE_DIR=D:\a\PirateWallet-Lite\PirateWallet-Lite\res\mxe\usr\x86_64-w64-mingw32.static\include
+          
+          REM Copy the Rust library to the standard lib name that's expected by the build
+          copy res\libs\libpiratewalletlite.a piratewalletlite.lib
           
           REM Display environment for debugging
           echo SODIUM_LIB_DIR: %SODIUM_LIB_DIR%
+          echo SODIUM_INCLUDE_DIR: %SODIUM_INCLUDE_DIR%
           echo Qt5_DIR: %Qt5_DIR%
           dir res\libs
           dir res\mxe\usr\x86_64-w64-mingw32.static\lib
+          dir
+          
+          REM Modify the project file to remove incompatible linker flags
+          powershell -Command "(gc piratewallet-lite-mingw.pro) -replace '-static-libgcc -static-libstdc\+\+', '' | Out-File -encoding ASCII piratewallet-lite-mingw.pro"
+          
+          REM Use the actual project file for building
+          %Qt5_DIR%\bin\qmake piratewallet-lite-mingw.pro CONFIG+=release -spec win32-msvc "LIBS+=-Lres\mxe\usr\x86_64-w64-mingw32.static\lib -Lres\libs"
           
           REM Build with verbose output
           nmake
