@@ -30,11 +30,34 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
           
+      - name: Install libsodium
+        shell: powershell
+        run: |
+          # Create directories using PowerShell instead of Unix mkdir -p
+          New-Item -ItemType Directory -Force -Path "res\libs"
+          New-Item -ItemType Directory -Force -Path "res\mxe\usr\x86_64-w64-mingw32.static\lib"
+          
+          # Download and extract libsodium
+          $libsodiumUrl = "https://download.libsodium.org/libsodium/releases/libsodium-1.0.18-stable-msvc.zip"
+          Invoke-WebRequest -Uri $libsodiumUrl -OutFile "libsodium.zip"
+          Expand-Archive -Path "libsodium.zip" -DestinationPath "libsodium-extract"
+          
+          # Copy library files to the expected location
+          Copy-Item "libsodium-extract\x64\Release\v142\static\libsodium.lib" "res\mxe\usr\x86_64-w64-mingw32.static\lib\libsodium.a"
+          Copy-Item "libsodium-extract\x64\Release\v142\static\libsodium.lib" "res\libs\libsodium.a"
+          
+          # Also copy headers
+          New-Item -ItemType Directory -Force -Path "res\mxe\usr\x86_64-w64-mingw32.static\include"
+          Copy-Item -Recurse "libsodium-extract\include\*" "res\mxe\usr\x86_64-w64-mingw32.static\include\"
+          
+          # List the files to confirm they exist
+          Get-ChildItem -Recurse res\mxe
+          Get-ChildItem -Recurse res\libs
+          
       - name: Build
         shell: cmd
         run: |
-          mkdir -p res/libs
-          cd res/libzecwalletlite
+          cd res\libzecwalletlite
           cargo build --lib --release
           
           REM Check both possible extensions and copy the file that exists
@@ -114,7 +137,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential libgl1-mesa-dev libsodium-dev \
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu binutils-aarch64-linux-gnu \
-            gperf python3-pip pkg-config autoconf libtool
+            gperf python3-pip pkg-config autoconf libtool automake bison flex texinfo
           
       - name: Set up Qt
         uses: jurplel/install-qt-action@v3
