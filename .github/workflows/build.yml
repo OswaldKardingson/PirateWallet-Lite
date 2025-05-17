@@ -44,9 +44,11 @@ jobs:
           mkdir D:\a\PirateWallet-Lite\PirateWallet-Lite\res\mxe\usr\x86_64-w64-mingw32.static\lib
           mkdir D:\a\PirateWallet-Lite\PirateWallet-Lite\res\mxe\usr\x86_64-w64-mingw32.static\include
           
-          REM Copy libraries from vcpkg to expected locations
-          copy %USERPROFILE%\vcpkg\installed\x64-windows-static\lib\libsodium.lib D:\a\PirateWallet-Lite\PirateWallet-Lite\res\mxe\usr\x86_64-w64-mingw32.static\lib\libsodium.a
-          copy %USERPROFILE%\vcpkg\installed\x64-windows-static\lib\libsodium.lib D:\a\PirateWallet-Lite\PirateWallet-Lite\res\libs\libsodium.a
+          REM Copy libraries from vcpkg to expected locations - log everything for debugging
+          echo Copying libraries from vcpkg to expected locations
+          dir %USERPROFILE%\vcpkg\installed\x64-windows-static\lib
+          type %USERPROFILE%\vcpkg\installed\x64-windows-static\lib\libsodium.lib > D:\a\PirateWallet-Lite\PirateWallet-Lite\res\mxe\usr\x86_64-w64-mingw32.static\lib\libsodium.a
+          type %USERPROFILE%\vcpkg\installed\x64-windows-static\lib\libsodium.lib > D:\a\PirateWallet-Lite\PirateWallet-Lite\res\libs\libsodium.a
           
           REM Copy headers
           xcopy /E /I /Y %USERPROFILE%\vcpkg\installed\x64-windows-static\include\sodium D:\a\PirateWallet-Lite\PirateWallet-Lite\res\mxe\usr\x86_64-w64-mingw32.static\include\sodium
@@ -78,20 +80,16 @@ jobs:
           if exist "target\release\libpiratewalletlite.a" (
             copy "target\release\libpiratewalletlite.a" "..\..\res\libs\"
             echo Copied libpiratewalletlite.a
-            set LIBFOUND=1
           ) else if exist "target\release\piratewalletlite.lib" (
             copy "target\release\piratewalletlite.lib" "..\..\res\libs\libpiratewalletlite.a"
             echo Copied piratewalletlite.lib as libpiratewalletlite.a
-            set LIBFOUND=1
           ) else if exist "target\release\qtlib.lib" (
             copy "target\release\qtlib.lib" "..\..\res\libs\libpiratewalletlite.a"
             echo Copied qtlib.lib as libpiratewalletlite.a
-            set LIBFOUND=1
           ) else (
-            echo No library file found
-            REM Create a dummy library to proceed with the build
-            echo "Dummy library" > "..\..\res\libs\libpiratewalletlite.a"
-            set LIBFOUND=0
+            echo No library file found. Listing target directory:
+            dir target /s
+            exit 1
           )
           
           cd ..\..
@@ -105,22 +103,20 @@ jobs:
           REM Use the actual project file for building
           %Qt5_DIR%\bin\qmake piratewallet-lite-mingw.pro CONFIG+=release -spec win32-msvc
           
-          REM Build with proper error output
-          nmake /S
+          REM Display environment for debugging
+          echo SODIUM_LIB_DIR: %SODIUM_LIB_DIR%
+          echo Qt5_DIR: %Qt5_DIR%
+          dir res\libs
+          dir res\mxe\usr\x86_64-w64-mingw32.static\lib
+          
+          REM Build with verbose output
+          nmake
           
           REM Display directory contents to help debug
           dir /s release
           dir /s debug
           dir *.exe
           dir *.dll
-          
-          REM Create a fallback executable if none exists
-          if not exist "release\*.exe" (
-            if not exist "*.exe" (
-              echo Creating fallback executable
-              echo This is a placeholder for Windows build > piratewallet-lite.exe
-            )
-          )
           
       - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v4
@@ -214,6 +210,12 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-unknown-linux-gnu
+          
+      - name: Verify Rust target installation
+        run: |
+          rustup target list --installed
+          rustup target add aarch64-unknown-linux-gnu
+          rustc --print target-list | grep aarch64-unknown-linux-gnu
           
       - name: Build dependencies
         run: |
