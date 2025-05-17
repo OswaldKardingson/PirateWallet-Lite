@@ -125,9 +125,11 @@ jobs:
           
           REM Create a minimal main.cpp if it doesn't exist
           if not exist "src\main.cpp" (
+            mkdir src 2>nul
             echo #include ^<QApplication^> > src\main_minimal.cpp
             echo #include ^<QMainWindow^> >> src\main_minimal.cpp
-            echo int main(int argc, char *argv[]) { >> src\main_minimal.cpp
+            echo int main(int argc, char *argv[]) >> src\main_minimal.cpp
+            echo { >> src\main_minimal.cpp
             echo     QApplication app(argc, argv); >> src\main_minimal.cpp
             echo     QMainWindow window; >> src\main_minimal.cpp
             echo     window.show(); >> src\main_minimal.cpp
