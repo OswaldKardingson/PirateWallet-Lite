@@ -1,0 +1,178 @@
+name: Build PirateWallet-Lite
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Qt
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: '5.15.2'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_msvc2019_64'
+          
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          
+      - name: Install dependencies
+        run: |
+          rustup target add x86_64-pc-windows-msvc
+          
+      - name: Build
+        run: |
+          mkdir -p res/libs
+          cd res/libzecwalletlite
+          cargo build --lib --release
+          cp target/release/libpiratewalletlite.a ../../res/libs/
+          cd ../..
+          qmake piratewallet-lite-mingw.pro CONFIG+=release
+          nmake
+
+  build-linux-x86_64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libgl1-mesa-dev libsodium-dev
+          
+      - name: Set up Qt
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: '5.15.2'
+          host: 'linux'
+          target: 'desktop'
+          
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          
+      - name: Build
+        run: |
+          mkdir -p res/libs
+          cd res/libzecwalletlite
+          cargo build --lib --release
+          cp target/release/libpiratewalletlite.a ../../res/libs/
+          cd ../..
+          qmake piratewallet-lite.pro CONFIG+=release
+          make -j$(nproc)
+
+  build-linux-aarch64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libgl1-mesa-dev libsodium-dev gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          
+      - name: Set up Qt
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: '5.15.2'
+          host: 'linux'
+          target: 'desktop'
+          
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          
+      - name: Build dependencies
+        run: |
+          BUILD=$(./depends/config.guess)
+          HOST="aarch64-linux-gnu"
+          make -C ./depends HOST="$HOST" -j$(nproc)
+          
+      - name: Build
+        run: |
+          mkdir -p res/libs
+          cd res/libzecwalletlite
+          rustup target add aarch64-unknown-linux-gnu
+          CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc cargo build --lib --release --target aarch64-unknown-linux-gnu
+          cp target/aarch64-unknown-linux-gnu/release/libpiratewalletlite.a ../../res/libs/
+          cd ../..
+          export PATH="$(pwd)/depends/aarch64-linux-gnu/bin:$PATH"
+          export QT_STATIC="$(pwd)/depends/aarch64-linux-gnu"
+          "$QT_STATIC"/bin/qmake piratewallet-lite.pro CONFIG+=release
+          make -j$(nproc)
+
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install dependencies
+        run: |
+          brew install libsodium
+          
+      - name: Set up Qt
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: '5.15.2'
+          host: 'mac'
+          target: 'desktop'
+          
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          
+      - name: Build
+        run: |
+          mkdir -p res/libs
+          cd res/libzecwalletlite
+          cargo build --lib --release
+          cp target/release/libpiratewalletlite.a ../../res/libs/
+          cd ../..
+          qmake piratewallet-lite.pro CONFIG+=release
+          make -j$(sysctl -n hw.ncpu)
+
+  build-macos-arm64:
+    runs-on: macos-latest-xlarge # This uses M1 Mac runners
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install dependencies
+        run: |
+          brew install libsodium
+          
+      - name: Set up Qt
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: '5.15.2'
+          host: 'mac'
+          target: 'desktop'
+          
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          
+      - name: Build
+        run: |
+          # Use the build-mac-arm.sh script
+          export APP_VERSION="1.0.11"
+          export PREV_VERSION="1.0.10"
+          bash utils/build-mac-arm.sh 
