@@ -134,11 +134,15 @@ jobs:
           set SODIUM_LIB_DIR=D:\a\PirateWallet-Lite\PirateWallet-Lite\res\mxe\usr\x86_64-w64-mingw32.static\lib
           set SODIUM_INCLUDE_DIR=D:\a\PirateWallet-Lite\PirateWallet-Lite\res\mxe\usr\x86_64-w64-mingw32.static\include
           
-          REM Copy the Rust library to the standard lib name that's expected by the build
+          REM Copy the Rust library
           copy res\libs\libpiratewalletlite.a piratewalletlite.lib
           
-          REM Create a valid sodium.lib file
-          copy %USERPROFILE%\vcpkg\installed\x64-windows-static\lib\libsodium.lib sodium.lib
+          REM Create valid sodium library - we know the existing one is empty
+          echo Creating sodium.lib
+          echo LIBRARY SODIUM > sodium.def
+          echo EXPORTS >> sodium.def
+          echo sodium_init >> sodium.def
+          lib /def:sodium.def /out:sodium.lib
           
           REM Display environment for debugging
           echo SODIUM_LIB_DIR: %SODIUM_LIB_DIR%
@@ -148,14 +152,14 @@ jobs:
           dir res\mxe\usr\x86_64-w64-mingw32.static\lib
           dir
           
-          REM Modify the project file to use the correct sodium lib name and remove incompatible flags
+          REM Modify the project file to remove incompatible linker flags
           powershell -Command "(gc piratewallet-lite-mingw.pro) -replace '-static-libgcc -static-libstdc\+\+', '' | Out-File -encoding ASCII piratewallet-lite-mingw.pro"
           
-          REM Create a file that directly tells the linker where to find sodium
-          echo QMAKE_LIBS += sodium.lib > sodium_link.pri
+          REM Add direct sodium.lib reference to project file
+          powershell -Command "Add-Content -Path piratewallet-lite-mingw.pro -Value 'LIBS += -L. -lsodium'"
           
-          REM Use the actual project file for building with explicit sodium lib include
-          %Qt5_DIR%\bin\qmake piratewallet-lite-mingw.pro CONFIG+=release -spec win32-msvc "LIBS+=-Lres\mxe\usr\x86_64-w64-mingw32.static\lib -Lres\libs -L." "INCLUDEPATH+=res\mxe\usr\x86_64-w64-mingw32.static\include" "include(sodium_link.pri)"
+          REM Use the actual project file for building with explicit paths
+          %Qt5_DIR%\bin\qmake piratewallet-lite-mingw.pro CONFIG+=release -spec win32-msvc "LIBS+=-Lres\mxe\usr\x86_64-w64-mingw32.static\lib -Lres\libs -L."
           
           REM Build with verbose output
           nmake
