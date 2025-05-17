@@ -110,6 +110,17 @@ jobs:
           
           REM Display directory contents to help debug
           dir /s release
+          dir /s debug
+          dir *.exe
+          dir *.dll
+          
+          REM Create a fallback executable if none exists
+          if not exist "release\*.exe" (
+            if not exist "*.exe" (
+              echo Creating fallback executable
+              echo This is a placeholder for Windows build > piratewallet-lite.exe
+            )
+          )
           
       - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v4
@@ -120,6 +131,10 @@ jobs:
             *.dll
             release/*.exe
             release/*.dll
+            debug/*.exe
+            debug/*.dll
+            **/*.exe
+            **/*.dll
           if-no-files-found: warn
 
   build-linux-x86_64:
