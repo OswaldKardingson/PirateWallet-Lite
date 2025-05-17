@@ -36,7 +36,19 @@ jobs:
           mkdir -p res/libs
           cd res/libzecwalletlite
           cargo build --lib --release
-          cp target/release/libpiratewalletlite.a ../../res/libs/
+          
+          # Check both possible extensions and copy the file that exists
+          if (Test-Path "target/release/libpiratewalletlite.a") {
+            Copy-Item "target/release/libpiratewalletlite.a" "../../res/libs/"
+          } elseif (Test-Path "target/release/piratewalletlite.lib") {
+            Copy-Item "target/release/piratewalletlite.lib" "../../res/libs/libpiratewalletlite.a"
+          } elseif (Test-Path "target/release/qtlib.lib") {
+            Copy-Item "target/release/qtlib.lib" "../../res/libs/libpiratewalletlite.a"
+          } else {
+            Get-ChildItem "target/release" -Recurse
+            throw "Could not find the compiled library file"
+          }
+          
           cd ../..
           qmake piratewallet-lite-mingw.pro CONFIG+=release
           nmake
@@ -49,7 +61,8 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libgl1-mesa-dev libsodium-dev
+          sudo apt-get install -y build-essential libgl1-mesa-dev libsodium-dev \
+            mesa-common-dev libglu1-mesa-dev
           
       - name: Set up Qt
         uses: jurplel/install-qt-action@v3
@@ -66,13 +79,29 @@ jobs:
           
       - name: Build
         run: |
+          set -x  # Enable debug output
           mkdir -p res/libs
           cd res/libzecwalletlite
+          
+          # Set environment variables
+          export SODIUM_LIB_DIR=/usr/lib/x86_64-linux-gnu
+          
+          # Build the Rust library
           cargo build --lib --release
-          cp target/release/libpiratewalletlite.a ../../res/libs/
+          
+          # Copy the library (with fallback to find it if not in expected location)
+          cp target/release/libpiratewalletlite.a ../../res/libs/ || {
+            echo "Library not found at expected location, searching for it:"
+            find target -name "*.a" -o -name "*.so"
+            find target -type f -size +100k
+            exit 1
+          }
+          
           cd ../..
+          # Ensure Qt is on the path
+          export PATH="${Qt5_DIR}/bin:$PATH"
           qmake piratewallet-lite.pro CONFIG+=release
-          make -j$(nproc)
+          make -j$(nproc) V=1
 
   build-linux-aarch64:
     runs-on: ubuntu-latest
@@ -82,7 +111,8 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential libgl1-mesa-dev libsodium-dev gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+          sudo apt-get install -y build-essential libgl1-mesa-dev libsodium-dev \
+            gcc-aarch64-linux-gnu g++-aarch64-linux-gnu binutils-aarch64-linux-gnu
           
       - name: Set up Qt
         uses: jurplel/install-qt-action@v3
@@ -99,22 +129,54 @@ jobs:
           
       - name: Build dependencies
         run: |
+          set -x  # Enable debug output
           BUILD=$(./depends/config.guess)
           HOST="aarch64-linux-gnu"
-          make -C ./depends HOST="$HOST" -j$(nproc)
+          make -C ./depends HOST="$HOST" -j$(nproc) V=1 || {
+            echo "Dependencies build failed. Showing last 100 lines of logs:"
+            tail -n 100 ./depends/work/build/*/config.log || true
+            exit 1
+          }
           
       - name: Build
         run: |
+          set -x  # Enable debug output
           mkdir -p res/libs
           cd res/libzecwalletlite
           rustup target add aarch64-unknown-linux-gnu
-          CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc cargo build --lib --release --target aarch64-unknown-linux-gnu
-          cp target/aarch64-unknown-linux-gnu/release/libpiratewalletlite.a ../../res/libs/
+          
+          # Set environment variables for cross-compilation
+          export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
+          export CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc
+          export CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++
+          export AR_aarch64_unknown_linux_gnu=aarch64-linux-gnu-ar
+          
+          # Build the Rust library
+          cargo build --lib --release --target aarch64-unknown-linux-gnu
+          
+          # Copy the library (with fallback to find it if not in expected location)
+          cp target/aarch64-unknown-linux-gnu/release/libpiratewalletlite.a ../../res/libs/ || {
+            find target -name "*.a" -o -name "*.so"
+            find target/aarch64-unknown-linux-gnu -type f -size +100k
+            exit 1
+          }
+          
           cd ../..
           export PATH="$(pwd)/depends/aarch64-linux-gnu/bin:$PATH"
           export QT_STATIC="$(pwd)/depends/aarch64-linux-gnu"
+          
+          # Print directory contents to debug
+          ls -la "$QT_STATIC/bin" || true
+          
+          # Check if qmake exists
+          if [ ! -f "$QT_STATIC/bin/qmake" ]; then
+            echo "qmake not found at expected location. Searching for it:"
+            find depends -name qmake
+            exit 1
+          fi
+          
           "$QT_STATIC"/bin/qmake piratewallet-lite.pro CONFIG+=release
-          make -j$(nproc)
+          make -j$(nproc) V=1
 
   build-macos:
     runs-on: macos-latest
@@ -123,14 +185,10 @@ jobs:
       
       - name: Install dependencies
         run: |
-          brew install libsodium
-          
-      - name: Set up Qt
-        uses: jurplel/install-qt-action@v3
-        with:
-          version: '5.15.2'
-          host: 'mac'
-          target: 'desktop'
+          brew install libsodium qt@5
+          brew link qt@5 --force
+          # Install create-dmg if it's needed for packaging
+          brew install create-dmg
           
       - name: Set up Rust
         uses: actions-rs/toolchain@v1
@@ -142,11 +200,24 @@ jobs:
         run: |
           mkdir -p res/libs
           cd res/libzecwalletlite
+          SODIUM_LIB_DIR=$(brew --prefix libsodium)/lib
           cargo build --lib --release
-          cp target/release/libpiratewalletlite.a ../../res/libs/
+          cp target/release/libpiratewalletlite.a ../../res/libs/ || \
+            { find target -name "*.a" -o -name "*.dylib"; exit 1; }
           cd ../..
+          
+          export PATH="$(brew --prefix qt@5)/bin:$PATH"
           qmake piratewallet-lite.pro CONFIG+=release
           make -j$(sysctl -n hw.ncpu)
+          
+          # Create DMG (if needed)
+          mkdir -p artifacts
+          if [ -d "PirateWallet-Lite.app" ]; then
+            create-dmg --volname "PirateWallet-Lite" --volicon "res/logo.icns" \
+            --window-pos 200 120 --icon "PirateWallet-Lite.app" 200 190 \
+            --app-drop-link 600 185 --window-size 800 400 \
+            artifacts/macOS-piratewallet-lite.dmg PirateWallet-Lite.app || true
+          fi
 
   build-macos-arm64:
     runs-on: macos-latest-xlarge # This uses M1 Mac runners
