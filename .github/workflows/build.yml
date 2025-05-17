@@ -102,51 +102,14 @@ jobs:
           REM Setup Visual Studio environment
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           
-          REM Create a simplified version of the pro file
-          echo TEMPLATE = app > piratewallet-lite-simple.pro
-          echo TARGET = piratewallet-lite >> piratewallet-lite-simple.pro
-          echo CONFIG += c++1z >> piratewallet-lite-simple.pro
-          echo QT += core gui network widgets websockets >> piratewallet-lite-simple.pro
+          REM Use the actual project file for building
+          %Qt5_DIR%\bin\qmake piratewallet-lite-mingw.pro CONFIG+=release -spec win32-msvc
           
-          REM Add resources
-          echo RESOURCES += application.qrc >> piratewallet-lite-simple.pro
+          REM Build with proper error output
+          nmake /S
           
-          REM Add all headers (except libsodium-related ones)
-          echo HEADERS += \ >> piratewallet-lite-simple.pro
-          for /f "tokens=*" %%a in ('findstr /i "\.h" piratewallet-lite-mingw.pro ^| findstr /v "libsodium"') do (
-            echo     %%a >> piratewallet-lite-simple.pro
-          )
-          
-          REM Add all sources
-          echo SOURCES += \ >> piratewallet-lite-simple.pro
-          for /f "tokens=*" %%a in ('findstr /i "\.cpp" piratewallet-lite-mingw.pro') do (
-            echo     %%a >> piratewallet-lite-simple.pro
-          )
-          
-          REM Create a minimal main.cpp if it doesn't exist
-          if not exist "src\main.cpp" (
-            mkdir src 2>nul
-            echo #include ^<QApplication^> > src\main_minimal.cpp
-            echo #include ^<QMainWindow^> >> src\main_minimal.cpp
-            echo int main(int argc, char *argv[]) >> src\main_minimal.cpp
-            echo { >> src\main_minimal.cpp
-            echo     QApplication app(argc, argv); >> src\main_minimal.cpp
-            echo     QMainWindow window; >> src\main_minimal.cpp
-            echo     window.show(); >> src\main_minimal.cpp
-            echo     return app.exec(); >> src\main_minimal.cpp
-            echo } >> src\main_minimal.cpp
-            
-            echo SOURCES += src/main_minimal.cpp >> piratewallet-lite-simple.pro
-          )
-          
-          REM Just attempt to compile something
-          %Qt5_DIR%\bin\qmake piratewallet-lite-simple.pro -spec win32-msvc
-          nmake
-          
-          REM Create a dummy executable if none exists
-          if not exist "release\piratewallet-lite.exe" (
-            echo This is a placeholder > piratewallet-lite.exe
-          )
+          REM Display directory contents to help debug
+          dir /s release
           
       - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v4
@@ -243,15 +206,8 @@ jobs:
           BUILD=$(./depends/config.guess)
           HOST="aarch64-linux-gnu"
           
-          # No retries - just make one attempt
           echo "Building dependencies for aarch64-linux-gnu..."
-          make -C ./depends HOST="$HOST" -j$(nproc) V=1 || {
-            echo "Dependencies build failed. Showing some debugging info:"
-            find ./depends -name "config.log" -exec echo "=== {} ===" \; -exec tail -n 100 {} \;
-            # Create required directories to continue the workflow
-            mkdir -p "./depends/aarch64-linux-gnu/bin"
-            exit 0  # Continue anyway
-          }
+          make -C ./depends HOST="$HOST" -j$(nproc) V=1
           
       - name: Build
         run: |
@@ -266,51 +222,24 @@ jobs:
           export AR_aarch64_unknown_linux_gnu=aarch64-linux-gnu-ar
           
           # Build the Rust library
-          cargo build --lib --release --target aarch64-unknown-linux-gnu || {
-            echo "Rust build failed but continuing..."
-            touch target/aarch64-unknown-linux-gnu/release/libpiratewalletlite.a
-          }
+          cargo build --lib --release --target aarch64-unknown-linux-gnu
           
-          # Copy the library (with fallback to find it if not in expected location)
-          cp target/aarch64-unknown-linux-gnu/release/libpiratewalletlite.a ../../res/libs/ || {
-            echo "Library not found at expected location, creating placeholder..."
-            touch ../../res/libs/libpiratewalletlite.a
-          }
+          # Copy the library
+          cp target/aarch64-unknown-linux-gnu/release/libpiratewalletlite.a ../../res/libs/
           
           cd ../..
           
-          if [ -d "./depends/aarch64-linux-gnu" ]; then
-            export PATH="$(pwd)/depends/aarch64-linux-gnu/bin:$PATH"
-            export QT_STATIC="$(pwd)/depends/aarch64-linux-gnu"
-            
-            # Check if qmake exists
-            if [ -f "$QT_STATIC/bin/qmake" ]; then
-              "$QT_STATIC"/bin/qmake piratewallet-lite.pro CONFIG+=release
-              make -j$(nproc) V=1 || echo "Build failed but continuing to upload artifacts"
-            else
-              echo "qmake not found, creating placeholder executable"
-              echo '#!/bin/bash' > piratewallet-lite
-              echo 'echo "This is a placeholder"' >> piratewallet-lite
-              chmod +x piratewallet-lite
-            fi
-          else
-            echo "Depends build directory not found, creating placeholder"
-            echo '#!/bin/bash' > piratewallet-lite
-            echo 'echo "This is a placeholder"' >> piratewallet-lite
-            chmod +x piratewallet-lite
-          fi
+          # Set up build environment
+          export PATH="$(pwd)/depends/aarch64-linux-gnu/bin:$PATH"
+          export QT_STATIC="$(pwd)/depends/aarch64-linux-gnu"
           
-          # Always make sure there's a file to upload
-          if [ ! -f "piratewallet-lite" ]; then
-            echo "Creating placeholder artifact"
-            echo '#!/bin/bash' > piratewallet-lite
-            echo 'echo "This is a placeholder for Linux aarch64 build"' >> piratewallet-lite
-            chmod +x piratewallet-lite
-          fi
+          # Build the application
+          $QT_STATIC/bin/qmake piratewallet-lite.pro CONFIG+=release
+          make -j$(nproc) V=1
           
-          # Debug: show file info
-          ls -la piratewallet-lite || echo "File not found"
-          pwd
+          # Debug: Show what we've built
+          ls -la
+          find . -name "piratewallet-lite" -type f
           
       - name: Upload Linux aarch64 Artifacts
         uses: actions/upload-artifact@v4
