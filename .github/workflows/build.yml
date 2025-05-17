@@ -71,10 +71,20 @@ jobs:
           set SODIUM_LIB_DIR=D:\a\PirateWallet-Lite\PirateWallet-Lite\res\mxe\usr\x86_64-w64-mingw32.static\lib
           set SODIUM_INCLUDE_DIR=D:\a\PirateWallet-Lite\PirateWallet-Lite\res\mxe\usr\x86_64-w64-mingw32.static\include
           
-          cargo build --lib --release
+          REM Display Rust information
+          rustc --version
+          cargo --version
           
-          REM Find all potential library files
-          dir "target\release" /s
+          REM Build the library
+          cargo build --lib --release --verbose
+          
+          REM Find all potential library files (check deeper for library files)
+          echo "Looking for library files in target directory:"
+          dir "target\release" /s | findstr "\.lib\|\.a\|\.dll"
+          
+          REM List all large files as potential candidates
+          echo "Large files in target directory:"
+          forfiles /P "target\release" /S /M *.* /C "cmd /c if @fsize GTR 100000 echo @path @fsize bytes"
           
           REM Check library files and copy them to the expected location
           if exist "target\release\libpiratewalletlite.a" (
@@ -86,13 +96,33 @@ jobs:
           ) else if exist "target\release\qtlib.lib" (
             copy "target\release\qtlib.lib" "..\..\res\libs\libpiratewalletlite.a"
             echo Copied qtlib.lib as libpiratewalletlite.a
+          ) else if exist "target\release\lib\*.lib" (
+            for %%f in ("target\release\lib\*.lib") do (
+              echo Found library file: %%f
+              copy "%%f" "..\..\res\libs\libpiratewalletlite.a"
+              echo Copied %%f as libpiratewalletlite.a
+              goto library_found
+            )
+          ) else if exist "target\release\deps\*.lib" (
+            for %%f in ("target\release\deps\*.lib") do (
+              echo Found library file: %%f
+              copy "%%f" "..\..\res\libs\libpiratewalletlite.a"
+              echo Copied %%f as libpiratewalletlite.a
+              goto library_found
+            )
           ) else (
             echo No library file found. Listing target directory:
-            dir target /s
+            dir target\release /s
+            echo "Library search failed. Looking in all directories for lib files:"
+            where /r . *.lib
             exit 1
           )
           
+          :library_found
           cd ..\..
+          
+          REM Verify that the library exists in the expected location
+          dir res\libs\libpiratewalletlite.a
           
       - name: Build Qt Application
         shell: cmd
