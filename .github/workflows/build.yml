@@ -142,7 +142,7 @@ jobs:
           echo LIBRARY SODIUM > sodium.def
           echo EXPORTS >> sodium.def
           echo sodium_init >> sodium.def
-          lib /def:sodium.def /out:sodium.lib
+          lib /def:sodium.def /out:sodium.lib /machine:x64
           
           REM Display environment for debugging
           echo SODIUM_LIB_DIR: %SODIUM_LIB_DIR%
@@ -154,6 +154,9 @@ jobs:
           
           REM Modify the project file to remove incompatible linker flags
           powershell -Command "(gc piratewallet-lite-mingw.pro) -replace '-static-libgcc -static-libstdc\+\+', '' | Out-File -encoding ASCII piratewallet-lite-mingw.pro"
+          
+          REM Remove ssp library reference which doesn't exist in MSVC
+          powershell -Command "(gc piratewallet-lite-mingw.pro) -replace '-lssp', '' | Out-File -encoding ASCII piratewallet-lite-mingw.pro"
           
           REM Add direct sodium.lib reference to project file
           powershell -Command "Add-Content -Path piratewallet-lite-mingw.pro -Value 'LIBS += -L. -lsodium'"
