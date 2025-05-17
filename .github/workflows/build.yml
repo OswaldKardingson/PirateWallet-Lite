@@ -241,11 +241,32 @@ jobs:
         with:
           targets: aarch64-unknown-linux-gnu
           
-      - name: Verify Rust target installation
+      - name: Verify Rust installation
         run: |
+          rustc --version
+          cargo --version
+          rustup --version
+          
+      - name: Install aarch64 target
+        run: |
+          set -x  # Enable debugging
+          # First remove the target if it already exists (to ensure clean installation)
+          rustup target remove aarch64-unknown-linux-gnu || true
+          
+          # Explicitly install the target with verbose output
+          rustup target add aarch64-unknown-linux-gnu --verbose
+          
+          # Verify the target is installed
           rustup target list --installed
-          rustup target add aarch64-unknown-linux-gnu
-          rustc --print target-list | grep aarch64-unknown-linux-gnu
+          
+          # Additional verification
+          if ! rustup target list --installed | grep -q "aarch64-unknown-linux-gnu"; then
+            echo "Failed to install aarch64-unknown-linux-gnu target"
+            exit 1
+          fi
+          
+          # Check that the target libraries exist
+          ls -la $(rustc --print target-libdir --target aarch64-unknown-linux-gnu) || echo "Target lib directory not found"
           
       - name: Build dependencies
         run: |
