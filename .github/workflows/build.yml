@@ -33,145 +33,115 @@ jobs:
       - name: Install libsodium via vcpkg
         shell: cmd
         run: |
+          set WORKSPACE_DIR=D:\a\PirateWallet-Lite\PirateWallet-Lite
           mkdir %USERPROFILE%\vcpkg
           cd %USERPROFILE%\vcpkg
           git clone https://github.com/microsoft/vcpkg .
           .\bootstrap-vcpkg.bat
           .\vcpkg install libsodium:x64-windows-static
           
-          REM Create directories that might be expected by the build
-          mkdir D:\a\PirateWallet-Lite\PirateWallet-Lite\res\libs
-          mkdir D:\a\PirateWallet-Lite\PirateWallet-Lite\res\mxe\usr\x86_64-w64-mingw32.static\lib
-          mkdir D:\a\PirateWallet-Lite\PirateWallet-Lite\res\mxe\usr\x86_64-w64-mingw32.static\include
+          REM Create directories for our local copies
+          mkdir %WORKSPACE_DIR%\res\libs 2>nul || true
+          mkdir %WORKSPACE_DIR%\res\include\sodium 2>nul || true
           
-          REM Copy libraries from vcpkg to expected locations - log everything for debugging
-          echo Copying libraries from vcpkg to expected locations
-          dir %USERPROFILE%\vcpkg\installed\x64-windows-static\lib
-          type %USERPROFILE%\vcpkg\installed\x64-windows-static\lib\libsodium.lib > D:\a\PirateWallet-Lite\PirateWallet-Lite\res\mxe\usr\x86_64-w64-mingw32.static\lib\libsodium.a
-          type %USERPROFILE%\vcpkg\installed\x64-windows-static\lib\libsodium.lib > D:\a\PirateWallet-Lite\PirateWallet-Lite\res\libs\libsodium.a
+          REM Copy libsodium.lib from vcpkg to res\libs\sodium.lib
+          echo Copying libsodium.lib from vcpkg to %WORKSPACE_DIR%\res\libs\sodium.lib
+          copy %USERPROFILE%\vcpkg\installed\x64-windows-static\lib\libsodium.lib %WORKSPACE_DIR%\res\libs\sodium.lib
+          REM Copy libsodium headers from vcpkg to res\include\sodium
+          echo Copying libsodium headers from vcpkg to %WORKSPACE_DIR%\res\include\sodium
+          xcopy /E /I /Y %USERPROFILE%\vcpkg\installed\x64-windows-static\include\sodium %WORKSPACE_DIR%\res\include\sodium
           
-          REM Copy headers
-          xcopy /E /I /Y %USERPROFILE%\vcpkg\installed\x64-windows-static\include\sodium D:\a\PirateWallet-Lite\PirateWallet-Lite\res\mxe\usr\x86_64-w64-mingw32.static\include\sodium
+          REM Remove legacy directories if they cause confusion, or ensure they are empty
+          REM For now, just ensure our target lib/include are clean and correctly populated
+          echo Listing %WORKSPACE_DIR%\res\libs:
+          dir %WORKSPACE_DIR%\res\libs
+          echo Listing %WORKSPACE_DIR%\res\include\sodium:
+          dir %WORKSPACE_DIR%\res\include\sodium
           
-          REM List directories for verification
-          dir D:\a\PirateWallet-Lite\PirateWallet-Lite\res\mxe\usr\x86_64-w64-mingw32.static\lib
-          dir D:\a\PirateWallet-Lite\PirateWallet-Lite\res\libs
-          
-      - name: Create gitignore temp file
-        shell: cmd
-        run: |
-          echo *.a > D:\a\PirateWallet-Lite\PirateWallet-Lite\res\.gitignore
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
           
       - name: Build Rust Library
         shell: cmd
         run: |
           cd res\libzecwalletlite
+          set WORKSPACE_DIR=D:\a\PirateWallet-Lite\PirateWallet-Lite
           
-          REM Set environment variables for building
-          set SODIUM_LIB_DIR=D:\a\PirateWallet-Lite\PirateWallet-Lite\res\mxe\usr\x86_64-w64-mingw32.static\lib
-          set SODIUM_INCLUDE_DIR=D:\a\PirateWallet-Lite\PirateWallet-Lite\res\mxe\usr\x86_64-w64-mingw32.static\include
+          REM Set env vars for Rust build to find libsodium if it depends on it during build time
+          REM The libsodium crate should pick up vcpkg's installation automatically.
+          set VCPKG_ROOT=%USERPROFILE%\vcpkg
           
-          REM Display Rust information
           rustc --version
           cargo --version
-          
-          REM Build the library
           cargo build --lib --release --verbose
           
-          REM Find all potential library files (check deeper for library files)
-          echo "Looking for library files in target directory:"
-          dir "target\release" /s | findstr "\.lib\|\.a\|\.dll"
-          
-          REM List all large files as potential candidates
-          echo "Large files in target directory:"
-          forfiles /P "target\release" /S /M *.* /C "cmd /c if @fsize GTR 100000 echo @path @fsize bytes"
-          
-          REM Check library files and copy them to the expected location
-          if exist "target\release\libpiratewalletlite.a" (
-            copy "target\release\libpiratewalletlite.a" "..\..\res\libs\"
-            echo Copied libpiratewalletlite.a
-          ) else if exist "target\release\piratewalletlite.lib" (
-            copy "target\release\piratewalletlite.lib" "..\..\res\libs\libpiratewalletlite.a"
-            echo Copied piratewalletlite.lib as libpiratewalletlite.a
-          ) else if exist "target\release\qtlib.lib" (
-            copy "target\release\qtlib.lib" "..\..\res\libs\libpiratewalletlite.a"
-            echo Copied qtlib.lib as libpiratewalletlite.a
-          ) else if exist "target\release\lib\*.lib" (
-            for %%f in ("target\release\lib\*.lib") do (
-              echo Found library file: %%f
-              copy "%%f" "..\..\res\libs\libpiratewalletlite.a"
-              echo Copied %%f as libpiratewalletlite.a
-              goto library_found
-            )
-          ) else if exist "target\release\deps\*.lib" (
-            for %%f in ("target\release\deps\*.lib") do (
-              echo Found library file: %%f
-              copy "%%f" "..\..\res\libs\libpiratewalletlite.a"
-              echo Copied %%f as libpiratewalletlite.a
-              goto library_found
-            )
+          REM Copy the built library to res\libs\piratewalletlite.lib
+          REM Cargo for MSVC target usually produces <crate_name>.lib
+          echo "Searching for Rust library output..."
+          if exist "target\release\piratewalletlite.lib" (
+            echo "Found piratewalletlite.lib, copying..."
+            copy "target\release\piratewalletlite.lib" "%WORKSPACE_DIR%\res\libs\piratewalletlite.lib"
+          ) else if exist "target\release\libpiratewalletlite.a" (
+            REM This case might happen if the crate type is staticlib and target is MinGW-like even on Windows
+            echo "Found libpiratewalletlite.a, copying as piratewalletlite.lib..."
+            copy "target\release\libpiratewalletlite.a" "%WORKSPACE_DIR%\res\libs\piratewalletlite.lib"
           ) else (
-            echo No library file found. Listing target directory:
-            dir target\release /s
-            echo "Library search failed. Looking in all directories for lib files:"
-            where /r . *.lib
+            echo "ERROR: piratewalletlite.lib or .a not found in target\release"
+            echo "Listing target\release:"
+            dir "target\release" /s
             exit 1
           )
-          
-          :library_found
           cd ..\..
-          
-          REM Verify that the library exists in the expected location
-          dir res\libs\libpiratewalletlite.a
+          echo "Verifying copied Rust library in %WORKSPACE_DIR%\res\libs:"
+          dir "%WORKSPACE_DIR%\res\libs"
           
       - name: Build Qt Application
         shell: cmd
         run: |
-          REM Setup Visual Studio environment
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+          set WORKSPACE_DIR=D:\a\PirateWallet-Lite\PirateWallet-Lite
           
-          REM Set environment variables for building
-          set SODIUM_LIB_DIR=D:\a\PirateWallet-Lite\PirateWallet-Lite\res\mxe\usr\x86_64-w64-mingw32.static\lib
-          set SODIUM_INCLUDE_DIR=D:\a\PirateWallet-Lite\PirateWallet-Lite\res\mxe\usr\x86_64-w64-mingw32.static\include
-          
-          REM Copy the Rust library
-          copy res\libs\libpiratewalletlite.a piratewalletlite.lib
-          
-          REM Create valid sodium library - we know the existing one is empty
-          echo Creating sodium.lib
-          echo LIBRARY SODIUM > sodium.def
-          echo EXPORTS >> sodium.def
-          echo sodium_init >> sodium.def
-          lib /def:sodium.def /out:sodium.lib /machine:x64
-          
-          REM Display environment for debugging
-          echo SODIUM_LIB_DIR: %SODIUM_LIB_DIR%
-          echo SODIUM_INCLUDE_DIR: %SODIUM_INCLUDE_DIR%
-          echo Qt5_DIR: %Qt5_DIR%
-          dir res\libs
-          dir res\mxe\usr\x86_64-w64-mingw32.static\lib
-          dir
-          
-          REM Modify the project file to remove incompatible linker flags
-          powershell -Command "(gc piratewallet-lite-mingw.pro) -replace '-static-libgcc -static-libstdc\+\+', '' | Out-File -encoding ASCII piratewallet-lite-mingw.pro"
-          
-          REM Remove ssp library reference which doesn't exist in MSVC
+          echo "--- Verifying libraries and headers before Qt Build ---"
+          echo "Contents of %WORKSPACE_DIR%\res\libs:"
+          dir %WORKSPACE_DIR%\res\libs
+          echo "Contents of %WORKSPACE_DIR%\res\include\sodium:"
+          dir %WORKSPACE_DIR%\res\include\sodium /s
+          echo "-----------------------------------------------------"
+
+          REM Modify the project file for MSVC compatibility
+          echo "Modifying piratewallet-lite-mingw.pro for MSVC..."
+          powershell -Command "(gc piratewallet-lite-mingw.pro) -replace 'QMAKE_LFLAGS \+= -static -static-libgcc -static-libstdc\+\+', '' | Out-File -encoding ASCII piratewallet-lite-mingw.pro"
+          powershell -Command "(gc piratewallet-lite-mingw.pro) -replace 'QMAKE_LFLAGS \+= -static', '' | Out-File -encoding ASCII piratewallet-lite-mingw.pro"
           powershell -Command "(gc piratewallet-lite-mingw.pro) -replace '-lssp', '' | Out-File -encoding ASCII piratewallet-lite-mingw.pro"
+          echo "Project file modified."
           
-          REM Add direct sodium.lib reference to project file
-          powershell -Command "Add-Content -Path piratewallet-lite-mingw.pro -Value 'LIBS += -L. -lsodium'"
+          REM Ensure .qmake.stash is removed to avoid caching issues
+          del .qmake.stash /f /q 2>nul || true
+          echo "Cleaned .qmake.stash (if it existed)."
+
+          echo "Running qmake..."
+          %Qt5_DIR%\bin\qmake piratewallet-lite-mingw.pro CONFIG+=release -spec win32-msvc ^
+            "INCLUDEPATH+=%WORKSPACE_DIR%\res\include" ^
+            "LIBS+=-L%WORKSPACE_DIR%\res\libs -lpiratewalletlite -lsodium"
+          echo "qmake finished."
           
-          REM Use the actual project file for building with explicit paths
-          %Qt5_DIR%\bin\qmake piratewallet-lite-mingw.pro CONFIG+=release -spec win32-msvc "LIBS+=-Lres\mxe\usr\x86_64-w64-mingw32.static\lib -Lres\libs -L."
-          
-          REM Build with verbose output
+          echo "Running nmake..."
           nmake
+          echo "nmake finished."
           
-          REM Display directory contents to help debug
+          REM Copy Qt DLLs for artifact packaging
+          echo "Copying Qt DLLs to release directory..."
+          xcopy /y /q "%Qt5_DIR%\bin\Qt5Core.dll" release\
+          xcopy /y /q "%Qt5_DIR%\bin\Qt5Gui.dll" release\
+          xcopy /y /q "%Qt5_DIR%\bin\Qt5Widgets.dll" release\
+          xcopy /y /q "%Qt5_DIR%\bin\Qt5Network.dll" release\
+          xcopy /y /q "%Qt5_DIR%\bin\Qt5WebSockets.dll" release\
+          echo "Qt DLLs copied."
+          
+          echo "Final contents of release directory:"
           dir /s release
-          dir /s debug
-          dir *.exe
-          dir *.dll
           
       - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v4
@@ -266,33 +236,58 @@ jobs:
         with:
           targets: aarch64-unknown-linux-gnu
           
-      - name: Verify Rust installation
+      - name: Verify Rust installation and aarch64 target
         run: |
+          set -x
           rustc --version
           cargo --version
           rustup --version
-          
-      - name: Install aarch64 target
-        run: |
-          set -x  # Enable debugging
-          # First remove the target if it already exists (to ensure clean installation)
-          rustup target remove aarch64-unknown-linux-gnu || true
-          
-          # Install the target
-          rustup target add aarch64-unknown-linux-gnu
-          
-          # Verify the target is installed
-          rustup target list --installed
-          
-          # Additional verification
+          echo "--- Verifying default toolchain and installed targets ---"
+          rustup show
+          echo "--- Specifically checking for aarch64-unknown-linux-gnu ---"
           if ! rustup target list --installed | grep -q "aarch64-unknown-linux-gnu"; then
-            echo "Failed to install aarch64-unknown-linux-gnu target"
+            echo "aarch64-unknown-linux-gnu target not found after dtolnay action! Attempting to install..."
+            rustup target add aarch64-unknown-linux-gnu || (echo "Failed to install aarch64 target." && exit 1)
+            rustup target list --installed | grep "aarch64-unknown-linux-gnu" || \
+              (echo "aarch64-unknown-linux-gnu target still not found after manual add!" && exit 1)
+          fi
+          echo "--- Checking target libdir for aarch64-unknown-linux-gnu ---"
+          TARGET_LIBDIR=$(rustc --print target-libdir --target aarch64-unknown-linux-gnu)
+          if [ -z "$TARGET_LIBDIR" ]; then
+            echo "Failed to get target-libdir for aarch64-unknown-linux-gnu"
             exit 1
           fi
-          
-          # Check that the target libraries exist
-          rustc --print target-libdir --target aarch64-unknown-linux-gnu
-          ls -la $(rustc --print target-libdir --target aarch64-unknown-linux-gnu) || echo "Target lib directory not found"
+          echo "Target libdir: $TARGET_LIBDIR"
+          ls -la "$TARGET_LIBDIR" || \
+            (echo "Target lib directory $TARGET_LIBDIR not found or not listable!" && exit 1)
+
+          # Check for libcore.rlib specifically
+          if [ ! -f "$TARGET_LIBDIR/libcore.rlib" ]; then
+              echo "libcore.rlib not found in $TARGET_LIBDIR! This indicates a broken rust-std installation for the target."
+              echo "Attempting to reinstall rust-std for aarch64-unknown-linux-gnu..."
+              rustup component add rust-std --target aarch64-unknown-linux-gnu || \
+                  (echo "Failed to install rust-std for aarch64." && exit 1)
+              
+              # Re-check libdir and libcore.rlib
+              TARGET_LIBDIR=$(rustc --print target-libdir --target aarch64-unknown-linux-gnu) # Re-fetch, might change
+              echo "Target libdir after attempt to add rust-std: $TARGET_LIBDIR"
+              ls -la "$TARGET_LIBDIR" || (echo "Target lib directory still not listable" && exit 1)
+              if [ ! -f "$TARGET_LIBDIR/libcore.rlib" ]; then
+                  echo "FATAL: libcore.rlib still not found after attempting rust-std install!"
+                  echo "Contents of .rustup/toolchains:"
+                  ls -la ~/.rustup/toolchains || true
+                  echo "Contents of .rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib:"
+                  # Assuming 'stable' is the toolchain name, adjust if different from rustup show
+                  TOOLCHAIN_PATH=$(rustup show active-toolchain | cut -d' ' -f1)
+                  if [ -n "$TOOLCHAIN_PATH" ] && [ -d ~/.rustup/toolchains/$TOOLCHAIN_PATH/lib/rustlib ]; then 
+                     ls -la ~/.rustup/toolchains/$TOOLCHAIN_PATH/lib/rustlib || true 
+                  else 
+                     echo "Could not determine active toolchain path or path does not exist: ~/.rustup/toolchains/$TOOLCHAIN_PATH/lib/rustlib" 
+                  fi
+                  exit 1
+              fi
+          fi
+          echo "aarch64-unknown-linux-gnu target and libcore.rlib verified."
           
       - name: Build dependencies
         run: |
