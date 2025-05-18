@@ -237,7 +237,13 @@ jobs:
         with:
           toolchain: stable # Using stable, can be a specific version like "1.78.0"
           targets: aarch64-unknown-linux-gnu
-          components: rust-std # Ensure rust-std for the target is explicitly requested
+          # components: rust-std # Ensure rust-std for the target is explicitly requested - This is typically automatic
+          
+      - name: Ensure aarch64 target is installed
+        run: |
+          rustup target add aarch64-unknown-linux-gnu
+          echo "Verifying target installation:"
+          rustup target list --installed
           
       - name: Build dependencies (Qt, libsodium, etc. for target)
         run: |
@@ -284,7 +290,13 @@ jobs:
           mkdir -p res/libs
           cd res/libzecwalletlite
           
-          # Add --verbose to cargo build for more detailed output from rustc as well
+          echo "Ensuring aarch64 target is installed for the current directory's toolchain..."
+          echo "Active rustc version in this directory before target add:"
+          rustc --version || echo "rustc not found or errored"
+          rustup target add aarch64-unknown-linux-gnu
+          echo "Verifying target installation for current toolchain:"
+          rustup target list --installed
+          
           cargo build --lib --release --target aarch64-unknown-linux-gnu -vv 
           
           cp target/aarch64-unknown-linux-gnu/release/libpiratewalletlite.a ../../res/libs/
