@@ -253,13 +253,15 @@ jobs:
           # Final check for libcore.rlib
           TARGET_LIBDIR=$(rustc --print target-libdir --target aarch64-unknown-linux-gnu)
           echo "Target libdir: $TARGET_LIBDIR"
-          if [ ! -f "$TARGET_LIBDIR/libcore.rlib" ]; then
-            echo "FATAL: libcore.rlib still not found in $TARGET_LIBDIR after forced updates."
+          # Check for any file starting with libcore- and ending with .rlib
+          if ! ls "$TARGET_LIBDIR"/libcore-*.rlib > /dev/null 2>&1; then
+            echo "FATAL: No libcore-*.rlib file found in $TARGET_LIBDIR after forced updates."
+            echo "Listing contents of $TARGET_LIBDIR:"
             ls -la "$TARGET_LIBDIR" || true
             exit 1
           else
-            echo "libcore.rlib found in $TARGET_LIBDIR. Setup appears correct."
-            ls -la "$TARGET_LIBDIR/libcore.rlib"
+            echo "libcore-*.rlib found in $TARGET_LIBDIR. Setup appears correct."
+            ls -la "$TARGET_LIBDIR"/libcore-*.rlib
           fi
           
       - name: Build dependencies
