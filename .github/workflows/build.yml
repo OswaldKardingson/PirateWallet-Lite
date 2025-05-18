@@ -274,7 +274,6 @@ jobs:
           
       - name: Build (Rust library and main application)
         env:
-          # RUSTFLAGS will be set dynamically below using the determined sysroot
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
           CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
           CXX_aarch64_unknown_linux_gnu: aarch64-linux-gnu-g++
@@ -282,20 +281,8 @@ jobs:
         run: |
           set -x  # Enable debug output
           
-          # Determine the sysroot for the target and set RUSTFLAGS
-          TARGET_SYSROOT=$(rustc --target aarch64-unknown-linux-gnu --print sysroot)
-          echo "Using target sysroot: $TARGET_SYSROOT"
-          export RUSTFLAGS="--sysroot $TARGET_SYSROOT ${RUSTFLAGS:-}" # Append to existing RUSTFLAGS if any
-          echo "Effective RUSTFLAGS: $RUSTFLAGS"
-          
           mkdir -p res/libs
           cd res/libzecwalletlite
-          
-          # Environment variables for cross-compilation (already set in env block but repeated for clarity if script is run standalone)
-          export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=${CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER:-aarch64-linux-gnu-gcc}
-          export CC_aarch64_unknown_linux_gnu=${CC_aarch64_unknown_linux_gnu:-aarch64-linux-gnu-gcc}
-          export CXX_aarch64_unknown_linux_gnu=${CXX_aarch64_unknown_linux_gnu:-aarch64-linux-gnu-g++}
-          export AR_aarch64_unknown_linux_gnu=${AR_aarch64_unknown_linux_gnu:-aarch64-linux-gnu-ar}
           
           # Add --verbose to cargo build for more detailed output from rustc as well
           cargo build --lib --release --target aarch64-unknown-linux-gnu -vv 
