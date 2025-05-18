@@ -224,7 +224,7 @@ jobs:
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu binutils-aarch64-linux-gnu \
             gperf python3-pip pkg-config autoconf libtool automake bison flex texinfo
           
-      - name: Set up Qt # This is for the host system tools like qmake, not necessarily the target libs
+      - name: Set up Qt # For host tools
         uses: jurplel/install-qt-action@v3
         with:
           version: '5.15.2'
@@ -232,39 +232,14 @@ jobs:
           target: 'desktop'
           
       - name: Set up Rust and AArch64 target
-        uses: dtolnay/rust-toolchain@stable # Or specify a fixed version like '1.78.0'
+        id: setup_rust # Add an id to potentially reference its outputs if needed
+        uses: dtolnay/rust-toolchain@stable 
         with:
-          toolchain: stable # or a specific version
+          toolchain: stable # Using stable, can be a specific version like "1.78.0"
           targets: aarch64-unknown-linux-gnu
-          components: rust-std # Explicitly request rust-std for the specified targets
+          components: rust-std # Ensure rust-std for the target is explicitly requested
           
-      - name: Force rustup update and component check
-        run: |
-          set -x
-          rustup update
-          rustup default stable # Ensure stable is the default for this session
-          # Remove and re-add target to ensure clean state of components
-          rustup target remove aarch64-unknown-linux-gnu || true 
-          rustup target add aarch64-unknown-linux-gnu
-          # Ensure rust-std for target is present
-          rustup component add rust-std --target aarch64-unknown-linux-gnu
-          echo "--- Rustup show after forced updates ---"
-          rustup show
-          # Final check for libcore.rlib
-          TARGET_LIBDIR=$(rustc --print target-libdir --target aarch64-unknown-linux-gnu)
-          echo "Target libdir: $TARGET_LIBDIR"
-          # Check for any file starting with libcore- and ending with .rlib
-          if ! ls "$TARGET_LIBDIR"/libcore-*.rlib > /dev/null 2>&1; then
-            echo "FATAL: No libcore-*.rlib file found in $TARGET_LIBDIR after forced updates."
-            echo "Listing contents of $TARGET_LIBDIR:"
-            ls -la "$TARGET_LIBDIR" || true
-            exit 1
-          else
-            echo "libcore-*.rlib found in $TARGET_LIBDIR. Setup appears correct."
-            ls -la "$TARGET_LIBDIR"/libcore-*.rlib
-          fi
-          
-      - name: Build dependencies
+      - name: Build dependencies (Qt, libsodium, etc. for target)
         run: |
           set -x  # Enable debug output
           BUILD=$(./depends/config.guess)
@@ -273,35 +248,62 @@ jobs:
           echo "Building dependencies for aarch64-linux-gnu..."
           make -C ./depends HOST="$HOST" -j$(nproc) V=1
           
-      - name: Build
+      - name: Diagnostic before Rust Build
+        run: |
+          set -x
+          echo "--- Rust Environment Diagnostics ---"
+          rustc --version
+          cargo --version
+          rustup --version
+          rustup show
+          echo "RUSTC (for host): $(rustc --print sysroot)"
+          echo "RUSTC (for target aarch64-unknown-linux-gnu): $(rustc --target aarch64-unknown-linux-gnu --print sysroot)"
+          echo "Target libdir for aarch64-unknown-linux-gnu: $(rustc --print target-libdir --target aarch64-unknown-linux-gnu)"
+          echo "Listing target libdir contents:"
+          ls -la $(rustc --print target-libdir --target aarch64-unknown-linux-gnu) || echo "Target lib directory not found or not listable"
+          echo "Checking for libcore-*.rlib specifically:"
+          ls -la $(rustc --print target-libdir --target aarch64-unknown-linux-gnu)/libcore-*.rlib || echo "libcore-*.rlib not found"
+          echo "CARGO_HOME: $CARGO_HOME"
+          echo "RUSTUP_HOME: $RUSTUP_HOME"
+          echo "RUSTUP_TOOLCHAIN: $RUSTUP_TOOLCHAIN"
+          echo "RUSTFLAGS: $RUSTFLAGS"
+          echo "CC_aarch64_unknown_linux_gnu: $CC_aarch64_unknown_linux_gnu"
+          echo "CXX_aarch64_unknown_linux_gnu: $CXX_aarch64_unknown_linux_gnu"
+          echo "AR_aarch64_unknown_linux_gnu: $AR_aarch64_unknown_linux_gnu"
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: $CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER"
+          
+      - name: Build (Rust library and main application)
+        env:
+          RUSTFLAGS: "" # Explicitly clear RUSTFLAGS for this step
+          # The following are set in the shell script part, but being explicit here doesn't hurt
+          # or ensures they are picked up if the script part had issues.
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+          CXX_aarch64_unknown_linux_gnu: aarch64-linux-gnu-g++
+          AR_aarch64_unknown_linux_gnu: aarch64-linux-gnu-ar
         run: |
           set -x  # Enable debug output
           mkdir -p res/libs
           cd res/libzecwalletlite
           
-          # Set environment variables for cross-compilation
-          export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
-          export CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc
-          export CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++
-          export AR_aarch64_unknown_linux_gnu=aarch64-linux-gnu-ar
+          # Environment variables for cross-compilation (already set in env block but repeated for clarity if script is run standalone)
+          export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=${CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER:-aarch64-linux-gnu-gcc}
+          export CC_aarch64_unknown_linux_gnu=${CC_aarch64_unknown_linux_gnu:-aarch64-linux-gnu-gcc}
+          export CXX_aarch64_unknown_linux_gnu=${CXX_aarch64_unknown_linux_gnu:-aarch64-linux-gnu-g++}
+          export AR_aarch64_unknown_linux_gnu=${AR_aarch64_unknown_linux_gnu:-aarch64-linux-gnu-ar}
           
-          # Build the Rust library
-          cargo build --lib --release --target aarch64-unknown-linux-gnu
+          cargo build --lib --release --target aarch64-unknown-linux-gnu -v # Added -v for verbose cargo output
           
-          # Copy the library
           cp target/aarch64-unknown-linux-gnu/release/libpiratewalletlite.a ../../res/libs/
           
           cd ../..
           
-          # Set up build environment
           export PATH="$(pwd)/depends/aarch64-linux-gnu/bin:$PATH"
           export QT_STATIC="$(pwd)/depends/aarch64-linux-gnu"
           
-          # Build the application
           $QT_STATIC/bin/qmake piratewallet-lite.pro CONFIG+=release
           make -j$(nproc) V=1
           
-          # Debug: Show what we've built
           ls -la
           find . -name "piratewallet-lite" -type f
           
