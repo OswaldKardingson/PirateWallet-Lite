@@ -224,70 +224,43 @@ jobs:
             gcc-aarch64-linux-gnu g++-aarch64-linux-gnu binutils-aarch64-linux-gnu \
             gperf python3-pip pkg-config autoconf libtool automake bison flex texinfo
           
-      - name: Set up Qt
+      - name: Set up Qt # This is for the host system tools like qmake, not necessarily the target libs
         uses: jurplel/install-qt-action@v3
         with:
           version: '5.15.2'
           host: 'linux'
           target: 'desktop'
           
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Set up Rust and AArch64 target
+        uses: dtolnay/rust-toolchain@stable # Or specify a fixed version like '1.78.0'
         with:
+          toolchain: stable # or a specific version
           targets: aarch64-unknown-linux-gnu
+          components: rust-std # Explicitly request rust-std for the specified targets
           
-      - name: Verify Rust installation and aarch64 target
+      - name: Force rustup update and component check
         run: |
           set -x
-          rustc --version
-          cargo --version
-          rustup --version
-          echo "--- Verifying default toolchain and installed targets ---"
+          rustup update
+          rustup default stable # Ensure stable is the default for this session
+          # Remove and re-add target to ensure clean state of components
+          rustup target remove aarch64-unknown-linux-gnu || true 
+          rustup target add aarch64-unknown-linux-gnu
+          # Ensure rust-std for target is present
+          rustup component add rust-std --target aarch64-unknown-linux-gnu
+          echo "--- Rustup show after forced updates ---"
           rustup show
-          echo "--- Specifically checking for aarch64-unknown-linux-gnu ---"
-          if ! rustup target list --installed | grep -q "aarch64-unknown-linux-gnu"; then
-            echo "aarch64-unknown-linux-gnu target not found after dtolnay action! Attempting to install..."
-            rustup target add aarch64-unknown-linux-gnu || (echo "Failed to install aarch64 target." && exit 1)
-            rustup target list --installed | grep "aarch64-unknown-linux-gnu" || \
-              (echo "aarch64-unknown-linux-gnu target still not found after manual add!" && exit 1)
-          fi
-          echo "--- Checking target libdir for aarch64-unknown-linux-gnu ---"
+          # Final check for libcore.rlib
           TARGET_LIBDIR=$(rustc --print target-libdir --target aarch64-unknown-linux-gnu)
-          if [ -z "$TARGET_LIBDIR" ]; then
-            echo "Failed to get target-libdir for aarch64-unknown-linux-gnu"
-            exit 1
-          fi
           echo "Target libdir: $TARGET_LIBDIR"
-          ls -la "$TARGET_LIBDIR" || \
-            (echo "Target lib directory $TARGET_LIBDIR not found or not listable!" && exit 1)
-
-          # Check for libcore.rlib specifically
           if [ ! -f "$TARGET_LIBDIR/libcore.rlib" ]; then
-              echo "libcore.rlib not found in $TARGET_LIBDIR! This indicates a broken rust-std installation for the target."
-              echo "Attempting to reinstall rust-std for aarch64-unknown-linux-gnu..."
-              rustup component add rust-std --target aarch64-unknown-linux-gnu || \
-                  (echo "Failed to install rust-std for aarch64." && exit 1)
-              
-              # Re-check libdir and libcore.rlib
-              TARGET_LIBDIR=$(rustc --print target-libdir --target aarch64-unknown-linux-gnu) # Re-fetch, might change
-              echo "Target libdir after attempt to add rust-std: $TARGET_LIBDIR"
-              ls -la "$TARGET_LIBDIR" || (echo "Target lib directory still not listable" && exit 1)
-              if [ ! -f "$TARGET_LIBDIR/libcore.rlib" ]; then
-                  echo "FATAL: libcore.rlib still not found after attempting rust-std install!"
-                  echo "Contents of .rustup/toolchains:"
-                  ls -la ~/.rustup/toolchains || true
-                  echo "Contents of .rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib:"
-                  # Assuming 'stable' is the toolchain name, adjust if different from rustup show
-                  TOOLCHAIN_PATH=$(rustup show active-toolchain | cut -d' ' -f1)
-                  if [ -n "$TOOLCHAIN_PATH" ] && [ -d ~/.rustup/toolchains/$TOOLCHAIN_PATH/lib/rustlib ]; then 
-                     ls -la ~/.rustup/toolchains/$TOOLCHAIN_PATH/lib/rustlib || true 
-                  else 
-                     echo "Could not determine active toolchain path or path does not exist: ~/.rustup/toolchains/$TOOLCHAIN_PATH/lib/rustlib" 
-                  fi
-                  exit 1
-              fi
+            echo "FATAL: libcore.rlib still not found in $TARGET_LIBDIR after forced updates."
+            ls -la "$TARGET_LIBDIR" || true
+            exit 1
+          else
+            echo "libcore.rlib found in $TARGET_LIBDIR. Setup appears correct."
+            ls -la "$TARGET_LIBDIR/libcore.rlib"
           fi
-          echo "aarch64-unknown-linux-gnu target and libcore.rlib verified."
           
       - name: Build dependencies
         run: |
