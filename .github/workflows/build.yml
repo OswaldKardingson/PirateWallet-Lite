@@ -274,15 +274,20 @@ jobs:
           
       - name: Build (Rust library and main application)
         env:
-          RUSTFLAGS: "" # Explicitly clear RUSTFLAGS for this step
-          # The following are set in the shell script part, but being explicit here doesn't hurt
-          # or ensures they are picked up if the script part had issues.
+          # RUSTFLAGS will be set dynamically below using the determined sysroot
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
           CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
           CXX_aarch64_unknown_linux_gnu: aarch64-linux-gnu-g++
           AR_aarch64_unknown_linux_gnu: aarch64-linux-gnu-ar
         run: |
           set -x  # Enable debug output
+          
+          # Determine the sysroot for the target and set RUSTFLAGS
+          TARGET_SYSROOT=$(rustc --target aarch64-unknown-linux-gnu --print sysroot)
+          echo "Using target sysroot: $TARGET_SYSROOT"
+          export RUSTFLAGS="--sysroot $TARGET_SYSROOT ${RUSTFLAGS:-}" # Append to existing RUSTFLAGS if any
+          echo "Effective RUSTFLAGS: $RUSTFLAGS"
+          
           mkdir -p res/libs
           cd res/libzecwalletlite
           
@@ -292,7 +297,8 @@ jobs:
           export CXX_aarch64_unknown_linux_gnu=${CXX_aarch64_unknown_linux_gnu:-aarch64-linux-gnu-g++}
           export AR_aarch64_unknown_linux_gnu=${AR_aarch64_unknown_linux_gnu:-aarch64-linux-gnu-ar}
           
-          cargo build --lib --release --target aarch64-unknown-linux-gnu -v # Added -v for verbose cargo output
+          # Add --verbose to cargo build for more detailed output from rustc as well
+          cargo build --lib --release --target aarch64-unknown-linux-gnu -vv 
           
           cp target/aarch64-unknown-linux-gnu/release/libpiratewalletlite.a ../../res/libs/
           
